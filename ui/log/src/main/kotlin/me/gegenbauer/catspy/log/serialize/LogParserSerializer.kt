@@ -161,9 +161,6 @@ class SerializableLogParser(
                     defaultResult[index] = part
                 }
             }
-            for (i in parsedResult.size until partCount) {
-                defaultResult[i] = EMPTY_STRING
-            }
         }
         return defaultResult.toList()
     }
@@ -190,10 +187,8 @@ interface ParseOp {
 }
 
 /**
- * Preprocessing operation, which refers to splitting the original log line into
- * multiple parts through extraction or splitting.
- * The final result is a sequence of strings, each representing a part,
- * which can also be considered as a column in a table.
+ * Preprocessing operation, which refers to splitting the original log line into multiple parts through extraction or splitting.
+ * The final result is a sequence of strings, each representing a part, which can also be considered as a column in a table.
  */
 interface SplitToPartsOp : ParseOp {
     val splitPostProcessOps: List<SplitPostProcessOp>
@@ -292,7 +287,7 @@ class SplitByWordSeparatorOp(
     }
 }
 
-class SplitPartWithCharOp(val splitChar: Char?, val partIndex: Int, val maxPart: Int) : SplitPostProcessOp {
+class SplitPartWithCharOp(val splitChar: Char?, val partIndex: Int) : SplitPostProcessOp {
 
     override val name: String = "SplitPartWithChar"
 
@@ -306,11 +301,7 @@ class SplitPartWithCharOp(val splitChar: Char?, val partIndex: Int, val maxPart:
         return sequence {
             parts.forEachIndexed { index, s ->
                 if (index == partIndex) {
-                    if (maxPart == 0) {
-                        yieldAll(s.splitToSequence(splitChar))
-                    } else {
-                        yieldAll(s.splitToSequence(splitChar, ignoreCase = false, limit = maxPart))
-                    }
+                    yieldAll(s.splitToSequence(splitChar))
                 } else {
                     yield(s)
                 }
@@ -322,11 +313,10 @@ class SplitPartWithCharOp(val splitChar: Char?, val partIndex: Int, val maxPart:
         return other is SplitPartWithCharOp
                 && other.splitChar == splitChar
                 && other.partIndex == partIndex
-                && other.maxPart == maxPart
     }
 
     override fun hashCode(): Int {
-        return Objects.hash(javaClass.name, splitChar, partIndex, maxPart)
+        return Objects.hash(javaClass.name, splitChar, partIndex)
     }
 
 }
@@ -350,7 +340,7 @@ class MergeNearbyPartsOp(val from: Int, val to: Int) : SplitPostProcessOp {
                 index in from until to -> mergedPart.append(part).append(" ")
                 index == to -> {
                     mergedPart.append(part)
-                    yield(mergedPart.toString())
+                    yield(mergedPart.toString().trim())
                 }
 
                 else -> yield(part)
@@ -381,44 +371,32 @@ class MergeUntilCharOp(val start: Int, val targetChar: Char?) : SplitPostProcess
         get() = STRINGS.parser.mergeUntilChar
 
     override fun process(parts: Sequence<String>): Sequence<String> {
+        targetChar ?: return parts
         return sequence {
             val mergedPart = StringBuilder()
-            if (targetChar == null) {
-                parts.forEachIndexed { index, s ->
-                    if (index < start) {
-                        yield(s)
-                    } else {
-                        mergedPart.append(s)
-                    }
-                }
-                if (mergedPart.isNotEmpty()) {
-                    yield(mergedPart.toString())
-                }
-                return@sequence
-            }
-
-            var index = 0
             var mergedComplete = false
-            parts.forEach { part ->
+            parts.forEachIndexed { index, part ->
                 if (index < start) {
                     yield(part)
                 } else {
                     if (!mergedComplete && part.contains(targetChar)) {
                         val strBeforeMergeChar = part.substringBefore(targetChar)
                         val strAfterMergeChar = part.substringAfter(targetChar)
-                        mergedPart.append(strBeforeMergeChar)
+                        mergedPart.append(strBeforeMergeChar).append(" ")
                         yield(mergedPart.toString())
                         if (strAfterMergeChar.isNotBlank()) {
                             yield(strAfterMergeChar)
                         }
                         mergedComplete = true
                     } else if (!mergedComplete) {
-                        mergedPart.append(part)
+                        mergedPart.append(part).append(" ")
                     } else {
                         yield(part)
                     }
                 }
-                index++
+            }
+            if (!mergedComplete) {
+                yield(mergedPart.toString())
             }
         }
     }
