@@ -374,29 +374,29 @@ class MergeUntilCharOp(val start: Int, val targetChar: Char?) : SplitPostProcess
         targetChar ?: return parts
         return sequence {
             val mergedPart = StringBuilder()
-            var index = 0
             var mergedComplete = false
-
-            parts.forEach { part ->
+            parts.forEachIndexed { index, part ->
                 if (index < start) {
                     yield(part)
                 } else {
                     if (!mergedComplete && part.contains(targetChar)) {
                         val strBeforeMergeChar = part.substringBefore(targetChar)
                         val strAfterMergeChar = part.substringAfter(targetChar)
-                        mergedPart.append(strBeforeMergeChar)
+                        mergedPart.append(strBeforeMergeChar).append(" ")
                         yield(mergedPart.toString())
                         if (strAfterMergeChar.isNotBlank()) {
                             yield(strAfterMergeChar)
                         }
                         mergedComplete = true
                     } else if (!mergedComplete) {
-                        mergedPart.append(part)
+                        mergedPart.append(part).append(" ")
                     } else {
                         yield(part)
                     }
                 }
-                index++
+            }
+            if (!mergedComplete) {
+                yield(mergedPart.toString())
             }
         }
     }
