@@ -32,7 +32,7 @@ class FileLogProducer(
         }
         return channelFlow {
             flowScope = this
-
+            val dateRegex = """^\d{4}-\d{2}-\d{2}\s""".toRegex()
             moveToState(LogProducer.State.RUNNING)
             if (tempFile.extension.equals("zip", true)) {
                 val fileSystem = FileSystem.SYSTEM
@@ -40,7 +40,7 @@ class FileLogProducer(
                 val files = zipFileSystem.listOrNull("/".toPath())
                 if (files != null) {
                     zipFileSystem.read(files.first()) {
-                        readUtf8().lineSequence().forEach { line ->
+                        readUtf8().lineSequence().mergeNonDateStrings(dateRegex).forEach { line ->
                             suspender.checkSuspend()
                             val num = logNum.getAndIncrement()
                             send(Result.success(LogItem(num, logParser.parse(line))))
@@ -49,7 +49,7 @@ class FileLogProducer(
                 }
             } else {
                 tempFile.inputStream().bufferedReader().use { reader ->
-                    reader.lineSequence().forEach { line ->
+                    reader.lineSequence().mergeNonDateStrings(dateRegex).forEach { line ->
                         suspender.checkSuspend()
                         val num = logNum.getAndIncrement()
                         send(Result.success(LogItem(num, logParser.parse(line))))
@@ -58,6 +58,29 @@ class FileLogProducer(
             }
             invokeOnClose { moveToState(LogProducer.State.COMPLETE) }
         }.flowOn(dispatcher)
+    }
+
+    fun Sequence<String>.mergeNonDateStrings(dateRegex: Regex): Sequence<String> {
+        return sequence {
+            val iterator = this@mergeNonDateStrings.iterator()
+            val buffer = StringBuilder()
+
+            while (iterator.hasNext()) {
+                val line = iterator.next()
+                val isNonDateLine = !dateRegex.containsMatchIn(line)
+                if (buffer.isEmpty() || isNonDateLine) {
+                    buffer.append(if (isNonDateLine) "\n" else "").append(line)
+                } else {
+                    yield(buffer.toString())
+                    buffer.clear()
+                    buffer.append(line)
+                }
+            }
+
+            if (buffer.isNotEmpty()) {
+                yield(buffer.toString())
+            }
+        }
     }
 
     override fun cancel() {
